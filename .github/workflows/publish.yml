@@ -1,4 +1,4 @@
-name: Publish @overengineered-solutions/db-tooling
+name: Publish @overengineered-solutions/standards
 
 on:
   push:

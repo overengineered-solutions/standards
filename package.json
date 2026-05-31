@@ -20,8 +20,8 @@
     }
   },
   "files": [
-    "docs",
-    "dist",
+    "docs/",
+    "dist/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
