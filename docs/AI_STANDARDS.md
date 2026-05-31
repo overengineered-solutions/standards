@@ -206,11 +206,13 @@ When an AI agent interacts with the system, it uses internal APIs (CLI harnesses
 The default operating context is a solo developer + one or more AI agents. Build for automation; surface concerns; don't fire-and-forget.
 → Deep dive: [`docs/standards/agent-behavior.md`](docs/standards/agent-behavior.md)
 
-> **§6 is FROZEN (2026-05-30).** R6.1–R6.11 are stable doctrine — do not add new R6.x
-> rules; new agent-execution guidance goes in the [`docs/standards/agent-behavior.md`](docs/standards/agent-behavior.md)
-> playbook. **R6.9 (Deliberation Files Protocol) and R6.11 (wave execution tiering) are
-> DEMOTED to optional playbook guidance** — no longer graded gates (they were meta-ceremony
-> that cost a solo operator more than they returned). R6.1–R6.8 and R6.10 stay active graded rules.
+> **§6 status:** R6.1–R6.8, R6.10, R6.12 are active graded rules. **R6.9 (Deliberation Files Protocol)
+> and R6.11 (wave execution tiering) are DEMOTED to optional playbook guidance** — no longer graded
+> gates (they were meta-ceremony that cost a solo operator more than they returned).
+> Section was frozen 2026-05-30 to keep agent-execution guidance flowing into the
+> [`docs/standards/agent-behavior.md`](docs/standards/agent-behavior.md) playbook rather than R-rule
+> sprawl, but **R6.12 was added 2026-05-31 by explicit operator request** — diagnostic discipline
+> is doctrine, not playbook calibration. Re-freeze applies after R6.12.
 
 ### R6.1 — Automation-first thinking
 When a process has steps (provisioning, baking, audits, deploys, CI), automate the steps end-to-end. A "you have to run this command, then that command" runbook is a defect — the runbook is the gap between what is and what should be.
@@ -335,6 +337,16 @@ File-map entries are SEPARATE from `feedback_*` lessons (which capture correctio
 **Why:** per-session recon (reading large files, grepping the codebase, re-deriving canonical patterns) is a steady tax across all multi-session work. File-map entries amortize the recon over many sessions. Per-session memory cost is bounded (one-line index entries) and the lookup hits before recon kicks in.
 
 **Audit test:** any substrate-touching wave merge should be followed by either (a) at least one `file_map_*` entry capturing the substrate's canonical location, OR (b) confirmation that the relevant entries already exist.
+
+### R6.12 — Root-cause diagnostic discipline
+
+On any failing system (red CI, broken deploy, runtime error, unexpected output), identify the ACTUAL failure mode before proposing a fix. "Symptoms that look like X based on file inspection" is a hypothesis — the diagnosis is what the runtime/system actually reports. Run the cheap probe (read the log, query the system, run the failing command directly) BEFORE writing code that assumes the hypothesis.
+
+If the first fix doesn't work, that's the signal. Two failed fix attempts in a row → pause, re-read the actual error / log / source-of-truth, and revise the model. Do NOT iterate guesses — the second guess starts from the same wrong premise as the first.
+
+**Why:** plausible-cause-from-code-inspection is the dominant failure mode of fast agent work. The fix lands, looks right, ships green-on-itself (because the unchanged path is also green), and the underlying defect persists. Symptoms regress next time someone else's PR exercises the real broken path. Worked example: OELM PR #15 v1 (2026-05-31) — agent saw `env: { secrets… }` in a failing workflow, hypothesized "secrets unset", shipped a guard. CI stayed red because the actual issue was a `with: null` block from a comments-only YAML map; `gh run view <run-id>` (the cheap probe) would have surfaced "This run likely failed because of a workflow file issue" in one command. The agent burned a full PR cycle on a fix derived from inspection, then had to ship v2 with the real diagnosis.
+
+**Audit test:** any agent-authored bug-fix PR cites the diagnostic evidence (log line / error message / probe output / failing repro) that confirmed the failure mode — not just the file the agent inspected to form the hypothesis. PRs whose body says "I noticed X in the code so I changed Y" without confirming evidence that X was actually the cause are findings against R6.12.
 
 ---
 
