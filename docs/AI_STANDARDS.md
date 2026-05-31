@@ -206,13 +206,14 @@ When an AI agent interacts with the system, it uses internal APIs (CLI harnesses
 The default operating context is a solo developer + one or more AI agents. Build for automation; surface concerns; don't fire-and-forget.
 → Deep dive: [`docs/standards/agent-behavior.md`](docs/standards/agent-behavior.md)
 
-> **§6 status:** R6.1–R6.8, R6.10, R6.12 are active graded rules. **R6.9 (Deliberation Files Protocol)
+> **§6 status:** R6.1–R6.8, R6.10, R6.12, R6.13 are active graded rules. **R6.9 (Deliberation Files Protocol)
 > and R6.11 (wave execution tiering) are DEMOTED to optional playbook guidance** — no longer graded
 > gates (they were meta-ceremony that cost a solo operator more than they returned).
 > Section was frozen 2026-05-30 to keep agent-execution guidance flowing into the
 > [`docs/standards/agent-behavior.md`](docs/standards/agent-behavior.md) playbook rather than R-rule
-> sprawl, but **R6.12 was added 2026-05-31 by explicit operator request** — diagnostic discipline
-> is doctrine, not playbook calibration. Re-freeze applies after R6.12.
+> sprawl; relaxed 2026-05-31 by explicit operator request for **R6.12 (diagnostic discipline)** and
+> **R6.13 (never write empty to secret store)** — both are doctrine, not playbook calibration.
+> Re-freeze applies after R6.13.
 
 ### R6.1 — Automation-first thinking
 When a process has steps (provisioning, baking, audits, deploys, CI), automate the steps end-to-end. A "you have to run this command, then that command" runbook is a defect — the runbook is the gap between what is and what should be.
@@ -347,6 +348,21 @@ If the first fix doesn't work, that's the signal. Two failed fix attempts in a r
 **Why:** plausible-cause-from-code-inspection is the dominant failure mode of fast agent work. The fix lands, looks right, ships green-on-itself (because the unchanged path is also green), and the underlying defect persists. Symptoms regress next time someone else's PR exercises the real broken path. Worked example: OELM PR #15 v1 (2026-05-31) — agent saw `env: { secrets… }` in a failing workflow, hypothesized "secrets unset", shipped a guard. CI stayed red because the actual issue was a `with: null` block from a comments-only YAML map; `gh run view <run-id>` (the cheap probe) would have surfaced "This run likely failed because of a workflow file issue" in one command. The agent burned a full PR cycle on a fix derived from inspection, then had to ship v2 with the real diagnosis.
 
 **Audit test:** any agent-authored bug-fix PR cites the diagnostic evidence (log line / error message / probe output / failing repro) that confirmed the failure mode — not just the file the agent inspected to form the hypothesis. PRs whose body says "I noticed X in the code so I changed Y" without confirming evidence that X was actually the cause are findings against R6.12.
+
+### R6.13 — Never write empty/null to a secret store
+
+When migrating, syncing, or otherwise propagating credentials between systems (Vercel ↔ Infisical ↔ GitHub Actions secrets ↔ Supabase Vault ↔ provider dashboards), the writer MUST refuse to store an empty string, whitespace-only string, literal `null`, or literal `undefined` for a value-bearing secret. Refuse with a directional error that names the source-side key + reason: "cannot migrate <KEY> from <source>: source returned empty value — likely a Vercel Sensitive var (`vercel env pull` returns empty for Sensitive). Set manually in <dest>."
+
+Downstream consumers (sync engines, deployers, build chains) MUST treat absent-or-empty as `set` only when the destination matches a documented allow-list of "legitimately empty" config (e.g. `VERCEL_GIT_*` vars Vercel auto-injects per deploy). All other empty stores cascade as an alert.
+
+**Why:** the secret-store ecosystem assumes "if you wrote it, you meant it." A naïve loop that copies values from system A to system B will faithfully copy empty strings, and the downstream sync will faithfully push those empty strings to whoever depends on them. The result: every consumer's runtime fails with "missing required env" but the operational view ("the secret is set!") looks healthy. Worked example: 2026-05-30 OES Infisical migration — `migrate-app-secrets.sh` ran `vercel env pull` to capture each project's Vercel env into Infisical. Vercel's Sensitive flag causes `vercel env pull` to return `""` for those values (DATABASE_URL, SUPABASE_JWT_SECRET, RESEND_API_KEY, etc.). The script wrote those empties to Infisical → next Infisical→Vercel sync wrote them back to Vercel → all three projects' production deploys (makeros, primopicks, oesolutions) blocked for 18+ hours with `DATABASE_URL/DIRECT_URL is unset` build failures. 28 critical secrets across 3 projects went silently empty; nothing alerted.
+
+**Audit test:** any code that writes to a secret store (Infisical/Vercel/GitHub/Vault/cloud KMS) MUST have a pre-write empty-check that fail-loud-skips empty values + emits an event/log/alert naming the key + source. CI on the secret-tooling repo should include a unit test that asserts "writing empty value throws/returns error/emits alert." Operational layer should run a weekly cron that scans every reachable secret store for length-≤-4 values on keys not on the allow-list + alerts to operator inbox. PRs that disable or weaken either of these checks are findings against R6.13.
+
+**Companion tooling expectations** (these are implementations of the rule, not the rule itself):
+- The migration runbook (`reference_vercel_infisical_migration`) must point at a `migrate-app-secrets.sh` whose empty-source-skip behavior is tested.
+- Each consumer repo's deploy flow must assert presence of required env before declaring "ready" (e.g. `tsx ../../infra/scripts/check-migrations-applied.ts --strict` already does this for DATABASE_URL on makeros — that style is the template).
+- The OES dashboard or equivalent operator surface owns the weekly scan + alert.
 
 ---
 
