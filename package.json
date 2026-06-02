@@ -1,6 +1,6 @@
 {
   "name": "@overengineered-solutions/standards",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Portable AI/engineering doctrine — rule-numbered standards as one source of truth across OES sibling projects",
   "license": "MIT",
   "type": "module",

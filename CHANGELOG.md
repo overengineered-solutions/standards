@@ -1,3 +1,26 @@
+v0.4.0 — 2026-06-01 — Add R2.9 + R2.10 (Secrets / facts / derived separation).
+
+  New rules:
+  - R2.9 — Secrets store secrets only. Static facts (project/team/account IDs,
+    region codes, host/port patterns, project refs, NEXT_PUBLIC_* values) live in
+    version control (committed config or a registry table), not the secrets store.
+    Derived values that compose a secret with facts (a connection URL = password +
+    host + port + db) are computed at the point of use through ONE canonical
+    builder and persisted nowhere. Audit test: a non-credential value in the
+    secrets store, or any stored secret-plus-fact composite, is a finding.
+  - R2.10 — Every value read from the secrets store is treated as a secret:
+    never logged / printed / echo'd / prompt-pasted / command-substituted;
+    single-key reads only, no whole-folder dumps. The secrets-only invariant
+    (R2.9) is what collapses this to one blind rule.
+
+  Why now: the 2026-06-01 Infisical/Vercel incident — derived connection URLs
+  stored alongside secrets went stale on password rotation (the stored URL kept
+  last month's password), and an "it's only a URL" read leaked the embedded
+  password. R2.9 + R2.10 structurally prevent both failure classes.
+
+  Section status: §2 (Zero-Trust Data) active graded rules now R2.1–R2.10.
+
+
 v0.3.0 — 2026-05-31 — Add R6.13 (Never write empty to secret store).
 
   New rule:

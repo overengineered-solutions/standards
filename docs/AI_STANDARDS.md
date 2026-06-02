@@ -104,6 +104,22 @@ Data sent to external services (LLM APIs, logging sinks, APMs, third-party webho
 ### R2.8 — Cross-tenant credential reads are forbidden by default
 Tenant A's key registry, secret vault, and credentials never resolve for tenant B's verification. Lookup functions take `tenantId` as a required parameter and scope every SELECT by `WHERE tenant_id = $1`.
 
+### R2.9 — Secrets store secrets only; facts live in version control; derived values are computed, never stored
+
+A secrets manager (vault, KMS, encrypted env store) holds **only** values that require encryption, rotation, or access control — API keys, tokens, passwords, signing secrets, connection passwords. Non-secret static configuration — project/team/account IDs, region codes, host and port patterns, project refs, and `NEXT_PUBLIC_*`-class values that ship to the client anyway — lives in version control (a committed config file or a registry table), **not** the secrets store. Derived values that compose a secret with static facts (a connection URL assembled from a password + host + port + db name) are computed at the point of use and persisted **nowhere** — neither in the secrets store nor in the registry. Compute them through one canonical builder; don't fork a second assembler.
+
+**Why:** a derived value stored in a secrets store goes stale the moment its source secret rotates — the URL in the store still carries last month's password while the live credential has moved on, and nothing flags the drift. Mixing static facts into the store also bloats it and erodes the one invariant that makes R2.10 enforceable: that everything in it is a secret. Facts belong where they can be diffed, reviewed, and version-controlled; secrets belong where they can be rotated and access-controlled; derived values belong to neither and are cheapest to recompute.
+
+**Audit test:** every value written to the secrets store is a credential (key/token/password/signing-secret) — a static ID, region, host/port pattern, project ref, or `NEXT_PUBLIC_*` value found in the store is a finding. Connection URLs or other secret-plus-fact composites stored in either the secrets store or the registry are a finding: the assembled value must be computed at the call site from a stored secret + version-controlled facts, via the project's single canonical builder.
+
+### R2.10 — Every value read from the secrets store is treated as a secret
+
+Because the store holds only secrets (R2.9), **any** value read from it is a secret with no exceptions: never logged, printed, `echo`'d, pasted into a prompt, or captured into shell command substitution. It is redacted in transit and at every boundary — logs, APMs, error payloads, LLM calls (R2.7). Reads are single-key and piped straight to the consumer — never whole-folder dumps that pull unrelated secrets into scope. The secrets-only invariant is what makes this enforceable: there is no "it's just a config value" exception to reason about, because no config values live there.
+
+**Why:** "it's only a connection URL, not a real secret" is the reasoning that leaks the password embedded inside it. A store that mixes facts and secrets forces a per-value judgement call about which reads are sensitive; a secrets-only store collapses that to a single rule the reader applies blindly. Whole-folder dumps and command-substitution capture are the two mechanisms that move a secret from the store into a log line, a transcript, or a process list without anyone deciding to expose it.
+
+**Audit test:** code that reads from the secrets store never routes the value through a logger, `console`, `print`, `echo`, or `$(...)`/backtick capture; reads request a single key, not a folder/prefix dump, unless every key in the prefix is independently consumed. A read followed by an unredacted log/print/echo of the value, or a whole-folder fetch where a single-key fetch would serve, is a finding.
+
 ---
 
 ## 3. Finance-Grade Spend Integrity
